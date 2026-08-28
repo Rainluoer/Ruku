@@ -27,6 +27,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.shared import Pt, Cm
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from datetime import datetime
 import argparse
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -125,6 +126,45 @@ def _duplicate_data_row(table, total_physical_idx):
     return total_physical_idx
 
 
+def _update_header_date(doc):
+    """将入库单右上角日期改为制作入库单当天日期
+
+    模板右上角日期是嵌套在项目信息表格(Table[0])内的 6 列小表格，
+    每个字各占一格：'2026'/'年'/'6'/'月'/'8'/'日'
+    """
+    now = datetime.now()
+    parts = [str(now.year), '年', str(now.month), '月', str(now.day), '日']
+
+    # 在项目信息表格中定位嵌套的日期表格
+    nested_tbl = None
+    for row in doc.tables[0].rows:
+        for cell in row.cells:
+            tbl = cell._tc.find(qn('w:tbl'))
+            if tbl is not None:
+                nested_tbl = tbl
+                break
+        if nested_tbl is not None:
+            break
+
+    if nested_tbl is None:
+        return
+
+    tr = nested_tbl.find(qn('w:tr'))
+    if tr is None:
+        return
+
+    tcs = tr.findall(qn('w:tc'))
+    for tc, text in zip(tcs, parts):
+        t = tc.find('.//' + qn('w:t'))
+        if t is not None:
+            t.text = text
+
+    try:
+        print(f'日期已更新为: {now.year}年{now.month}月{now.day}日')
+    except UnicodeEncodeError:
+        print(f'Date updated: {now.year}-{now.month}-{now.day}')
+
+
 def main():
     parser = argparse.ArgumentParser(description='基于模板填写入库单')
     parser.add_argument('--template', default=_DEFAULT_TEMPLATE, help='模板docx文件路径（默认skill内template/模板.docx）')
@@ -172,6 +212,9 @@ def main():
     print(f'Total items: {len(all_items)}')
 
     doc = docx.Document(args.template)
+
+    # 更新右上角日期为制作入库单当天日期
+    _update_header_date(doc)
 
     # 模板结构:
     #   Table[0]: 项目信息透明表格（自动保留，无需修改）
